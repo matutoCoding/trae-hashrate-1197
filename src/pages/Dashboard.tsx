@@ -8,6 +8,7 @@ import {
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, Cell } from 'recharts';
 import { parseISO, format, isToday, addDays, startOfWeek, endOfWeek, eachDayOfInterval } from 'date-fns';
 import { formatCurrency } from '@/services/billingService';
+import { getDynamicScaffoldStatus } from '@/services/scheduleService';
 import { Link } from 'react-router-dom';
 
 export default function Dashboard() {
@@ -19,8 +20,13 @@ export default function Dashboard() {
 
   const stats = useMemo(() => {
     const totalScaffolds = scaffolds.length;
-    const rentedScaffolds = scaffolds.filter(s => s.status === 'rented').length;
-    const availableScaffolds = scaffolds.filter(s => s.status === 'available').length;
+    let rentedScaffolds = 0;
+    let availableScaffolds = 0;
+    for (const s of scaffolds) {
+      const dyn = getDynamicScaffoldStatus(s, rentalOrders);
+      if (dyn === 'rented') rentedScaffolds++;
+      else if (dyn === 'available') availableScaffolds++;
+    }
     const utilizationRate = totalScaffolds > 0 ? Math.round((rentedScaffolds / totalScaffolds) * 100) : 0;
 
     const activeOrders = rentalOrders.filter(o => o.status === 'active' || o.status === 'overdue').length;
@@ -77,8 +83,9 @@ export default function Dashboard() {
     const typeMap = new Map<string, { rented: number; total: number }>();
     for (const s of scaffolds) {
       const existing = typeMap.get(s.type) || { rented: 0, total: 0 };
+      const dyn = getDynamicScaffoldStatus(s, rentalOrders);
       typeMap.set(s.type, {
-        rented: existing.rented + (s.status === 'rented' ? 1 : 0),
+        rented: existing.rented + (dyn === 'rented' ? 1 : 0),
         total: existing.total + 1,
       });
     }
@@ -87,7 +94,7 @@ export default function Dashboard() {
       rented: data.rented,
       available: data.total - data.rented,
     }));
-  }, [scaffolds]);
+  }, [scaffolds, rentalOrders]);
 
   const todayExpiring = useMemo(() => {
     const today = new Date();

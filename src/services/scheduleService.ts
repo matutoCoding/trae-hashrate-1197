@@ -1,9 +1,12 @@
-import { RentalOrder, Scaffold, ScaffoldStatus, RentalStatus, WaitlistEntry } from '@/types';
+import { RentalOrder, Scaffold, ScaffoldStatus, RentalStatus, WaitlistEntry, RateRule, InventoryLog } from '@/types';
 import { addMinutes, isAfter, isBefore, parseISO, format } from 'date-fns';
 
 const STORAGE_KEYS = {
   SCAFFOLDS: 'scaffold_rentals_scaffolds',
   ORDERS: 'scaffold_rentals_orders',
+  RATE_RULES: 'scaffold_rentals_rate_rules',
+  ACTIVE_RULE_ID: 'scaffold_rentals_active_rule_id',
+  INVENTORY_LOGS: 'scaffold_rentals_inventory_logs',
 };
 
 export function generateId(): string {
@@ -44,6 +47,30 @@ export function loadOrders(): RentalOrder[] {
 
 export function saveOrders(orders: RentalOrder[]): void {
   saveToStorage(STORAGE_KEYS.ORDERS, orders);
+}
+
+export function loadRateRules(): RateRule[] {
+  return loadFromStorage<RateRule[]>(STORAGE_KEYS.RATE_RULES, []);
+}
+
+export function saveRateRules(rules: RateRule[]): void {
+  saveToStorage(STORAGE_KEYS.RATE_RULES, rules);
+}
+
+export function loadActiveRuleId(): string | null {
+  return loadFromStorage<string | null>(STORAGE_KEYS.ACTIVE_RULE_ID, null);
+}
+
+export function saveActiveRuleId(id: string | null): void {
+  saveToStorage(STORAGE_KEYS.ACTIVE_RULE_ID, id);
+}
+
+export function loadInventoryLogs(): InventoryLog[] {
+  return loadFromStorage<InventoryLog[]>(STORAGE_KEYS.INVENTORY_LOGS, []);
+}
+
+export function saveInventoryLogs(logs: InventoryLog[]): void {
+  saveToStorage(STORAGE_KEYS.INVENTORY_LOGS, logs);
 }
 
 export function createRentalOrder(
@@ -152,4 +179,65 @@ export function createScaffold(
     status: data.status || 'available',
     createdAt: new Date().toISOString(),
   };
+}
+
+export function getScaffoldAvailabilityDetail(
+  scaffoldId: string,
+  orders: RentalOrder[],
+  checkDate: Date = new Date()
+): { isAvailable: boolean; activeOrder: RentalOrder | null; upcomingOrders: RentalOrder[] } {
+  const now = checkDate;
+  const activeOrder = orders.find(o => {
+    if (o.scaffoldId !== scaffoldId) return false;
+    if (o.status === 'completed' || o.status === 'released') return false;
+    const orderStart = parseISO(o.startTime);
+    const orderEnd = parseISO(o.endTime);
+    return !isBefore(now, orderStart) && !isAfter(now, orderEnd);
+  }) || null;
+
+  const upcomingOrders = orders.filter(o => {
+    if (o.scaffoldId !== scaffoldId) return false;
+    if (o.status === 'completed' || o.status === 'released') return false;
+    const orderStart = parseISO(o.startTime);
+    return isAfter(orderStart, now);
+  }).sort((a, b) => parseISO(a.startTime).getTime() - parseISO(b.startTime).getTime());
+
+  const isCurrentlyRented = activeOrder && (activeOrder.status === 'active' || activeOrder.status === 'overdue');
+
+  return {
+    isAvailable: !isCurrentlyRented,
+    activeOrder,
+    upcomingOrders,
+  };
+}
+
+export function getDynamicScaffoldStatus(
+  scaffold: Scaffold,
+  orders: RentalOrder[],
+  checkDate: Date = new Date()
+): ScaffoldStatus {
+  if (scaffold.status === 'maintenance') return 'maintenance';
+  const { activeOrder } = getScaffoldAvailabilityDetail(scaffold.id, orders, checkDate);
+  if (activeOrder && (activeOrder.status === 'active' || activeOrder.status === 'overdue')) {
+    return 'rented';
+  }
+  return 'available';
+}
+
+export function hasScheduleConflict(
+  scaffoldId: string,
+  orders: RentalOrder[],
+  startTime: Date,
+  endTime: Date,
+  excludeOrderId?: string
+): boolean {
+  const conflictingOrders = orders.filter(o => {
+    if (o.scaffoldId !== scaffoldId) return false;
+    if (excludeOrderId && o.id === excludeOrderId) return false;
+    if (o.status === 'completed' || o.status === 'released') return false;
+    const orderStart = parseISO(o.startTime);
+    const orderEnd = parseISO(o.endTime);
+    return !(isBefore(endTime, orderStart) || isAfter(startTime, orderEnd));
+  });
+  return conflictingOrders.length > 0;
 }

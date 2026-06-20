@@ -1,10 +1,11 @@
 import { useState, useMemo } from 'react';
 import { useAppStore } from '@/store/useAppStore';
 import { PageHeader, Tag, Modal } from '@/components/UI';
-import { ChevronLeft, ChevronRight, Plus, Calendar, Clock, User, Building2 } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Plus, Calendar, Clock, User, Building2, AlertCircle } from 'lucide-react';
 import { addDays, startOfWeek, endOfWeek, eachDayOfInterval, format, isSameDay, parseISO, addHours, isBefore } from 'date-fns';
 import { RentalOrder, RentalStatus, Scaffold } from '@/types';
 import { calculateRentalFee } from '@/services/billingService';
+import { getDynamicScaffoldStatus, hasScheduleConflict } from '@/services/scheduleService';
 
 const statusLabel: Record<RentalStatus, string> = {
   pending: '待开始',
@@ -72,6 +73,11 @@ export default function ScheduleCalendar() {
     const start = new Date(`${formData.startDate}T${formData.startTime}`);
     const end = new Date(`${formData.endDate}T${formData.endTime}`);
     if (isBefore(end, start)) return;
+
+    if (hasScheduleConflict(selectedScaffold.id, rentalOrders, start, end)) {
+      alert('该脚手架在所选时间段已有预约，时间冲突，请选择其他时间或其他脚手架。');
+      return;
+    }
 
     createRental({
       scaffoldId: selectedScaffold.id,
@@ -153,13 +159,15 @@ export default function ScheduleCalendar() {
               ))}
             </div>
 
-            {scaffolds.map(scaffold => (
+            {scaffolds.map(scaffold => {
+              const dynStatus = getDynamicScaffoldStatus(scaffold, rentalOrders);
+              return (
               <div key={scaffold.id} className="grid border-t-2 border-steel-200 hover:bg-steel-50" style={{ gridTemplateColumns: `180px repeat(${days.length}, 1fr)` }}>
                 <div className="p-3 border-r-2 border-steel-200 bg-white">
                   <div className="font-mono text-xs text-steel-500">{scaffold.code}</div>
                   <div className="font-display font-semibold text-sm text-steel-900 truncate">{scaffold.type}</div>
-                  <Tag type={scaffold.status === 'available' ? 'success' : scaffold.status === 'rented' ? 'peak' : 'warning'} className="mt-1">
-                    {scaffold.status === 'available' ? '空闲' : scaffold.status === 'rented' ? '租赁中' : '维修'}
+                  <Tag type={dynStatus === 'available' ? 'success' : dynStatus === 'rented' ? 'peak' : 'warning'} className="mt-1">
+                    {dynStatus === 'available' ? '空闲' : dynStatus === 'rented' ? '租赁中' : '维修'}
                   </Tag>
                 </div>
 
@@ -167,7 +175,7 @@ export default function ScheduleCalendar() {
                   const orders = getOrdersForScaffoldAndDay(scaffold.id, day);
                   return (
                     <div key={day.toISOString()} className="p-1 border-r-2 border-steel-200 last:border-r-0 min-h-[80px] relative">
-                      {scaffold.status === 'available' && (
+                      {scaffold.status !== 'maintenance' && (
                         <button
                           onClick={() => openNewRental(scaffold)}
                           className="absolute inset-1 border-2 border-dashed border-steel-300 opacity-0 hover:opacity-100 transition-opacity flex items-center justify-center bg-white/80"
@@ -194,7 +202,8 @@ export default function ScheduleCalendar() {
                   );
                 })}
               </div>
-            ))}
+            );
+            })}
           </div>
         </div>
       </div>
@@ -230,9 +239,10 @@ export default function ScheduleCalendar() {
               onChange={e => setSelectedScaffold(scaffolds.find(s => s.id === e.target.value) || null)}
             >
               <option value="">请选择脚手架</option>
-              {scaffolds.filter(s => s.status === 'available').map(s => (
-                <option key={s.id} value={s.id}>{s.code} - {s.type} ({s.poleCount}根)</option>
-              ))}
+              {scaffolds.filter(s => s.status !== 'maintenance').map(s => {
+                const dyn = getDynamicScaffoldStatus(s, rentalOrders);
+                return <option key={s.id} value={s.id}>{s.code} - {s.type} ({s.poleCount}根, {dyn === 'available' ? '空闲' : dyn === 'rented' ? '当前占用' : '维修'})</option>;
+              })}
             </select>
           </div>
           <div>

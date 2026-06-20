@@ -10,7 +10,9 @@ import {
 } from '@/services/mockData';
 import {
   loadScaffolds, saveScaffolds, loadOrders, saveOrders,
-  createRentalOrder, autoReleaseExpired, createScaffold
+  createRentalOrder, autoReleaseExpired, createScaffold,
+  loadRateRules, saveRateRules, loadActiveRuleId, saveActiveRuleId,
+  loadInventoryLogs, saveInventoryLogs
 } from '@/services/scheduleService';
 import {
   loadWaitlist, saveWaitlist, loadNotifications, saveNotifications,
@@ -58,7 +60,7 @@ interface AppState {
   processAutoRelease: () => { released: RentalOrder[]; expiredWaitlist: WaitlistEntry[]; newNotifications: NotificationLog[] };
 }
 
-const INIT_KEY = 'scaffold_rental_initialized_v1';
+const INIT_KEY = 'scaffold_rental_initialized_v2';
 
 export const useAppStore = create<AppState>((set, get) => ({
   rateRules: [],
@@ -85,17 +87,21 @@ export const useAppStore = create<AppState>((set, get) => ({
       const invoices = createMockInvoices(rentalOrders);
       const inventoryLogs = createMockInventoryLogs(scaffolds);
       const notifications = createMockNotifications(waitlist);
+      const activeRuleId = rateRules.find(r => r.isActive)?.id || null;
 
       saveScaffolds(scaffolds);
       saveOrders(rentalOrders);
       saveWaitlist(waitlist);
       saveInvoices(invoices);
       saveNotifications(notifications);
+      saveRateRules(rateRules);
+      saveActiveRuleId(activeRuleId);
+      saveInventoryLogs(inventoryLogs);
       localStorage.setItem(INIT_KEY, '1');
 
       set({
         rateRules,
-        activeRuleId: rateRules.find(r => r.isActive)?.id || null,
+        activeRuleId,
         scaffolds,
         rentalOrders,
         waitlist,
@@ -105,22 +111,27 @@ export const useAppStore = create<AppState>((set, get) => ({
         initialized: true,
       });
     } else {
-      const rateRules = createMockRateRules();
+      const storedRateRules = loadRateRules();
+      const storedActiveRuleId = loadActiveRuleId();
       const scaffolds = loadScaffolds();
       const rentalOrders = loadOrders();
       const waitlist = loadWaitlist();
       const invoices = loadInvoices();
       const notifications = loadNotifications();
-      const inventoryLogs = createMockInventoryLogs(scaffolds.length > 0 ? scaffolds : createMockScaffolds());
+      const inventoryLogs = loadInventoryLogs();
+
+      const mockRateRules = createMockRateRules();
+      const mockScaffolds = createMockScaffolds();
+      const mockOrders = createMockOrders(mockRateRules, mockScaffolds);
 
       set({
-        rateRules,
-        activeRuleId: rateRules.find(r => r.isActive)?.id || null,
-        scaffolds: scaffolds.length > 0 ? scaffolds : createMockScaffolds(),
-        rentalOrders: rentalOrders.length > 0 ? rentalOrders : createMockOrders(rateRules, scaffolds.length > 0 ? scaffolds : createMockScaffolds()),
+        rateRules: storedRateRules.length > 0 ? storedRateRules : mockRateRules,
+        activeRuleId: storedActiveRuleId || mockRateRules.find(r => r.isActive)?.id || null,
+        scaffolds: scaffolds.length > 0 ? scaffolds : mockScaffolds,
+        rentalOrders: rentalOrders.length > 0 ? rentalOrders : mockOrders,
         waitlist: waitlist.length > 0 ? waitlist : createMockWaitlist(),
-        invoices: invoices.length > 0 ? invoices : createMockInvoices(rentalOrders.length > 0 ? rentalOrders : createMockOrders(rateRules, scaffolds.length > 0 ? scaffolds : createMockScaffolds())),
-        inventoryLogs,
+        invoices: invoices.length > 0 ? invoices : createMockInvoices(rentalOrders.length > 0 ? rentalOrders : mockOrders),
+        inventoryLogs: inventoryLogs.length > 0 ? inventoryLogs : createMockInventoryLogs(scaffolds.length > 0 ? scaffolds : mockScaffolds),
         notifications: notifications.length > 0 ? notifications : createMockNotifications(waitlist.length > 0 ? waitlist : createMockWaitlist()),
         initialized: true,
       });
@@ -132,17 +143,23 @@ export const useAppStore = create<AppState>((set, get) => ({
       ...r,
       isActive: r.id === id,
     }));
+    saveRateRules(rateRules);
+    saveActiveRuleId(id);
     set({ rateRules, activeRuleId: id });
   },
 
   addRateRule: (rule: RateRule) => {
-    set({ rateRules: [...get().rateRules, rule] });
+    const rateRules = [...get().rateRules, rule];
+    saveRateRules(rateRules);
+    set({ rateRules });
   },
 
   updateRateRule: (id: string, updates: Partial<RateRule>) => {
-    set({
-      rateRules: get().rateRules.map(r => r.id === id ? { ...r, ...updates } : r),
-    });
+    const rateRules = get().rateRules.map(r => r.id === id ? { ...r, ...updates } : r);
+    saveRateRules(rateRules);
+    const newActive = rateRules.find(r => r.isActive);
+    if (newActive) saveActiveRuleId(newActive.id);
+    set({ rateRules, activeRuleId: newActive?.id || null });
   },
 
   addScaffold: (data) => {
@@ -178,18 +195,17 @@ export const useAppStore = create<AppState>((set, get) => ({
       quantity,
     };
     const order = createRentalOrder(orderData);
+    const now = new Date();
+    if (startTime > now) {
+      order.status = 'pending';
+    }
     order.billingResult = billingResult;
     order.totalAmount = billingResult.totalAmount;
 
     const rentalOrders = [...get().rentalOrders, order];
     saveOrders(rentalOrders);
 
-    const scaffolds = get().scaffolds.map(s =>
-      s.id === data.scaffoldId ? { ...s, status: 'rented' as ScaffoldStatus } : s
-    );
-    saveScaffolds(scaffolds);
-
-    set({ rentalOrders, scaffolds });
+    set({ rentalOrders });
     return billingResult;
   },
 
@@ -246,7 +262,9 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   addInventoryLog: (log) => {
-    set({ inventoryLogs: [...get().inventoryLogs, log] });
+    const inventoryLogs = [log, ...get().inventoryLogs];
+    saveInventoryLogs(inventoryLogs);
+    set({ inventoryLogs });
   },
 
   processAutoRelease: () => {

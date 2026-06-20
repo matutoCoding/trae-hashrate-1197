@@ -1,9 +1,10 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useAppStore } from '@/store/useAppStore';
 import { PageHeader, Tag, Modal, EmptyState } from '@/components/UI';
 import { Plus, Edit2, Trash2, Building2, Package, Search, Filter } from 'lucide-react';
 import { Scaffold, ScaffoldStatus } from '@/types';
-import { format } from 'date-fns';
+import { format, parseISO } from 'date-fns';
+import { getDynamicScaffoldStatus, getScaffoldAvailabilityDetail } from '@/services/scheduleService';
 
 const statusLabel: Record<ScaffoldStatus, string> = {
   available: '空闲',
@@ -32,10 +33,19 @@ export default function ScaffoldList() {
     code: '', type: '门式脚手架', poleCount: 100, status: 'available' as ScaffoldStatus, location: '', notes: ''
   });
 
+  const dynamicStatusMap = useMemo(() => {
+    const map = new Map<string, ScaffoldStatus>();
+    for (const s of scaffolds) {
+      map.set(s.id, getDynamicScaffoldStatus(s, rentalOrders));
+    }
+    return map;
+  }, [scaffolds, rentalOrders]);
+
   const filteredScaffolds = scaffolds.filter(s => {
     const matchSearch = s.code.toLowerCase().includes(search.toLowerCase()) ||
       s.type.toLowerCase().includes(search.toLowerCase());
-    const matchStatus = statusFilter === 'all' || s.status === statusFilter;
+    const dynStatus = dynamicStatusMap.get(s.id) || s.status;
+    const matchStatus = statusFilter === 'all' || dynStatus === statusFilter;
     return matchSearch && matchStatus;
   });
 
@@ -67,17 +77,22 @@ export default function ScaffoldList() {
     }
   };
 
-  const getActiveRental = (scaffoldId: string) => {
-    return rentalOrders.find(o => o.scaffoldId === scaffoldId && (o.status === 'active' || o.status === 'overdue'));
-  };
-
-  const stats = {
-    total: scaffolds.length,
-    available: scaffolds.filter(s => s.status === 'available').length,
-    rented: scaffolds.filter(s => s.status === 'rented').length,
-    maintenance: scaffolds.filter(s => s.status === 'maintenance').length,
-    totalPoles: scaffolds.reduce((sum, s) => sum + s.poleCount, 0),
-  };
+  const stats = useMemo(() => {
+    let available = 0, rented = 0, maintenance = 0;
+    for (const s of scaffolds) {
+      const dyn = dynamicStatusMap.get(s.id) || s.status;
+      if (dyn === 'available') available++;
+      else if (dyn === 'rented') rented++;
+      else if (dyn === 'maintenance') maintenance++;
+    }
+    return {
+      total: scaffolds.length,
+      available,
+      rented,
+      maintenance,
+      totalPoles: scaffolds.reduce((sum, s) => sum + s.poleCount, 0),
+    };
+  }, [scaffolds, dynamicStatusMap]);
 
   return (
     <div>
@@ -148,7 +163,8 @@ export default function ScaffoldList() {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
           {filteredScaffolds.map(s => {
-            const activeRental = getActiveRental(s.id);
+            const dynStatus = dynamicStatusMap.get(s.id) || s.status;
+            const availability = getScaffoldAvailabilityDetail(s.id, rentalOrders);
             return (
               <div key={s.id} className="card-industrial p-4 hover:shadow-industrial-lg transition-all relative">
                 <div className="absolute top-3 right-3 flex gap-1">
@@ -187,16 +203,25 @@ export default function ScaffoldList() {
                   </div>
                   <div className="flex justify-between items-center pt-2 border-t-2 border-steel-200">
                     <span className="font-mono text-steel-500">状态</span>
-                    <Tag type={statusType[s.status]}>{statusLabel[s.status]}</Tag>
+                    <Tag type={statusType[dynStatus]}>{statusLabel[dynStatus]}</Tag>
                   </div>
                 </div>
 
-                {activeRental && (
+                {availability.activeOrder && (
                   <div className="mt-3 p-2 bg-steel-50 border-2 border-steel-900">
                     <div className="font-mono text-xs text-steel-500">当前租赁客户</div>
-                    <div className="font-display font-semibold text-sm text-steel-900 truncate">{activeRental.customerName}</div>
+                    <div className="font-display font-semibold text-sm text-steel-900 truncate">{availability.activeOrder.customerName}</div>
                     <div className="font-mono text-xs text-steel-500 mt-1">
-                      到期：{format(new Date(activeRental.endTime), 'MM-dd HH:mm')}
+                      到期：{format(parseISO(availability.activeOrder.endTime), 'MM-dd HH:mm')}
+                    </div>
+                  </div>
+                )}
+
+                {availability.upcomingOrders.length > 0 && (
+                  <div className="mt-2 p-2 bg-industrial-info/10 border-2 border-industrial-info">
+                    <div className="font-mono text-xs text-industrial-info">已预约 {availability.upcomingOrders.length} 单</div>
+                    <div className="font-mono text-xs text-steel-500 mt-1">
+                      最近：{format(parseISO(availability.upcomingOrders[0].startTime), 'MM-dd HH:mm')}
                     </div>
                   </div>
                 )}

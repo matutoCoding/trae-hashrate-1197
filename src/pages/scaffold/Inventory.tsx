@@ -1,13 +1,15 @@
 import { useMemo, useState } from 'react';
 import { useAppStore } from '@/store/useAppStore';
 import { PageHeader, Tag, Modal } from '@/components/UI';
-import { Package, Plus, Search, ArrowUpCircle, ArrowDownCircle, ArrowRightLeft } from 'lucide-react';
+import { Package, Plus, Search, ArrowUpCircle, ArrowDownCircle, ArrowRightLeft, AlertCircle } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
-import { InventoryLog, Scaffold } from '@/types';
+import { InventoryLog, Scaffold, ScaffoldStatus } from '@/types';
+import { getDynamicScaffoldStatus } from '@/services/scheduleService';
 
 export default function Inventory() {
   const scaffolds = useAppStore(s => s.scaffolds);
-  const [logs, setLogs] = useState<InventoryLog[]>(useAppStore.getState().inventoryLogs);
+  const rentalOrders = useAppStore(s => s.rentalOrders);
+  const inventoryLogs = useAppStore(s => s.inventoryLogs);
   const addInventoryLog = useAppStore(s => s.addInventoryLog);
 
   const [search, setSearch] = useState('');
@@ -18,9 +20,13 @@ export default function Inventory() {
 
   const summary = useMemo(() => {
     const totalPoles = scaffolds.reduce((sum, s) => sum + s.poleCount, 0);
-    const availablePoles = scaffolds.filter(s => s.status === 'available').reduce((sum, s) => sum + s.poleCount, 0);
-    const rentedPoles = scaffolds.filter(s => s.status === 'rented').reduce((sum, s) => sum + s.poleCount, 0);
-    const maintenancePoles = scaffolds.filter(s => s.status === 'maintenance').reduce((sum, s) => sum + s.poleCount, 0);
+    let availablePoles = 0, rentedPoles = 0, maintenancePoles = 0;
+    for (const s of scaffolds) {
+      const dyn = getDynamicScaffoldStatus(s, rentalOrders);
+      if (dyn === 'available') availablePoles += s.poleCount;
+      else if (dyn === 'rented') rentedPoles += s.poleCount;
+      else if (dyn === 'maintenance') maintenancePoles += s.poleCount;
+    }
 
     const typeMap = new Map<string, number>();
     for (const s of scaffolds) {
@@ -28,19 +34,43 @@ export default function Inventory() {
     }
 
     return { totalPoles, availablePoles, rentedPoles, maintenancePoles, typeMap: Array.from(typeMap.entries()) };
-  }, [scaffolds]);
+  }, [scaffolds, rentalOrders]);
 
-  const filteredLogs = useMemo(() => logs
+  const filteredLogs = useMemo(() => inventoryLogs
     .filter(l => l.scaffoldCode.toLowerCase().includes(search.toLowerCase()))
     .sort((a, b) => parseISO(b.createdAt).getTime() - parseISO(a.createdAt).getTime())
-  , [logs, search]);
+  , [inventoryLogs, search]);
 
   const handleSubmit = () => {
     if (!formData.scaffoldId) return;
     const scaffold = scaffolds.find(s => s.id === formData.scaffoldId);
     if (!scaffold) return;
 
-    const change = formData.action === 'out' ? -Math.abs(formData.poleChange) : formData.action === 'in' ? Math.abs(formData.poleChange) : formData.poleChange;
+    let change: number;
+    if (formData.action === 'out') {
+      change = -Math.abs(formData.poleChange);
+      if (formData.poleChange <= 0) {
+        alert('出库数量必须大于0');
+        return;
+      }
+      if (Math.abs(change) > scaffold.poleCount) {
+        alert(`出库数量超过当前杆件数！当前杆件数：${scaffold.poleCount}根`);
+        return;
+      }
+    } else if (formData.action === 'in') {
+      if (formData.poleChange <= 0) {
+        alert('入库数量必须大于0');
+        return;
+      }
+      change = Math.abs(formData.poleChange);
+    } else {
+      change = formData.poleChange;
+      if (scaffold.poleCount + change < 0) {
+        alert(`调整后杆件数不能为负数！调整后：${scaffold.poleCount + change}根`);
+        return;
+      }
+    }
+
     const after = scaffold.poleCount + change;
 
     const log: InventoryLog = {
@@ -55,12 +85,10 @@ export default function Inventory() {
       notes: formData.notes,
     };
 
-    const newLogs = [log, ...logs];
-    setLogs(newLogs);
     addInventoryLog(log);
-
     useAppStore.getState().updateScaffold(scaffold.id, { poleCount: after });
     setModalOpen(false);
+    setFormData({ scaffoldId: '', action: 'in', poleChange: 0, operator: '', notes: '' });
   };
 
   const getActionIcon = (action: string) => {
@@ -173,19 +201,21 @@ export default function Inventory() {
                 </tr>
               </thead>
               <tbody>
-                {scaffolds.map(s => (
+                {scaffolds.map(s => {
+                  const dyn = getDynamicScaffoldStatus(s, rentalOrders);
+                  return (
                   <tr key={s.id}>
                     <td className="font-mono">{s.code}</td>
                     <td>{s.type}</td>
                     <td className="font-display font-bold">{s.poleCount} 根</td>
                     <td>
-                      <Tag type={s.status === 'available' ? 'success' : s.status === 'rented' ? 'peak' : 'warning'}>
-                        {s.status === 'available' ? '空闲' : s.status === 'rented' ? '租赁中' : '维修中'}
+                      <Tag type={dyn === 'available' ? 'success' : dyn === 'rented' ? 'peak' : 'warning'}>
+                        {dyn === 'available' ? '空闲' : dyn === 'rented' ? '租赁中' : '维修中'}
                       </Tag>
                     </td>
                     <td className="font-mono">{s.location || '-'}</td>
                   </tr>
-                ))}
+                )})}
               </tbody>
             </table>
           </div>
