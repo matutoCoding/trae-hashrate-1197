@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import {
   LayoutDashboard, Calculator, Receipt, Building2, CalendarDays,
-  Package, ListTodo, Bell, Menu, X, User, Settings
+  Package, ListTodo, Bell, Menu, X, User, Settings, GitBranch
 } from 'lucide-react';
 import { useAppStore } from '@/store/useAppStore';
 import { useEffect } from 'react';
@@ -21,6 +21,7 @@ const navigation = [
       { name: '脚手架列表', path: '/scaffold/list', icon: Building2 },
       { name: '排期日历', path: '/scaffold/schedule', icon: CalendarDays },
       { name: '库存盘点', path: '/scaffold/inventory', icon: Package },
+      { name: '出入库追踪', path: '/scaffold/inventory-tracking', icon: GitBranch },
     ]
   },
   { name: '账单管理', path: '/bills/list', icon: Receipt },

@@ -1,10 +1,10 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useAppStore } from '@/store/useAppStore';
 import { PageHeader, Tag, Modal } from '@/components/UI';
-import { ChevronLeft, ChevronRight, Plus, Calendar, Clock, User, Building2, AlertCircle, Package, CheckCircle, Undo2, X } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Plus, Calendar, Clock, User, Building2, AlertCircle, Package, CheckCircle, Undo2, X, Calculator, FileText } from 'lucide-react';
 import { addDays, startOfWeek, endOfWeek, eachDayOfInterval, format, isSameDay, parseISO, addHours, isBefore } from 'date-fns';
-import { RentalOrder, RentalStatus, Scaffold } from '@/types';
-import { calculateRentalFee } from '@/services/billingService';
+import { RentalOrder, RentalStatus, Scaffold, BillingResult } from '@/types';
+import { calculateRentalFee, formatCurrency } from '@/services/billingService';
 import { getDynamicScaffoldStatus, hasScheduleConflict } from '@/services/scheduleService';
 
 const statusLabel: Record<RentalStatus, string> = {
@@ -28,17 +28,25 @@ export default function ScheduleCalendar() {
   const rentalOrders = useAppStore(s => s.rentalOrders);
   const rateRules = useAppStore(s => s.rateRules);
   const activeRuleId = useAppStore(s => s.activeRuleId);
+  const inventoryLogs = useAppStore(s => s.inventoryLogs);
   const createRental = useAppStore(s => s.createRental);
   const pickupRental = useAppStore(s => s.pickupRental);
   const returnRental = useAppStore(s => s.returnRental);
+  const createInvoice = useAppStore(s => s.createInvoice);
   const processAutoRelease = useAppStore(s => s.processAutoRelease);
 
   const [viewMode, setViewMode] = useState<'week' | 'day'>('week');
   const [currentDate, setCurrentDate] = useState(new Date());
   const [modalOpen, setModalOpen] = useState(false);
   const [detailOpen, setDetailOpen] = useState(false);
+  const [settleOpen, setSettleOpen] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState<RentalOrder | null>(null);
   const [selectedScaffold, setSelectedScaffold] = useState<Scaffold | null>(null);
+  const [settleBilling, setSettleBilling] = useState<BillingResult | null>(null);
+
+  useEffect(() => {
+    processAutoRelease();
+  }, []);
 
   const [formData, setFormData] = useState({
     customerName: '', customerPhone: '', quantity: 1,
@@ -70,6 +78,27 @@ export default function ScheduleCalendar() {
       setFormData(p => ({ ...p }));
     }
     setModalOpen(true);
+  };
+
+  const handleOpenSettle = (order: RentalOrder) => {
+    const activeRule = rateRules.find(r => r.id === activeRuleId);
+    if (!activeRule) return;
+    const actualStart = order.actualStartTime ? new Date(order.actualStartTime) : new Date(order.startTime);
+    const actualEnd = new Date();
+    const billing = calculateRentalFee(actualStart, actualEnd, order.quantity, activeRule);
+    setSettleBilling(billing);
+    setSelectedOrder(order);
+    setDetailOpen(false);
+    setSettleOpen(true);
+  };
+
+  const handleConfirmReturn = () => {
+    if (!selectedOrder) return;
+    returnRental(selectedOrder.id);
+    createInvoice(selectedOrder.id);
+    setSettleOpen(false);
+    setSelectedOrder(null);
+    setSettleBilling(null);
   };
 
   const handleCreateRental = () => {
@@ -298,14 +327,14 @@ export default function ScheduleCalendar() {
             <button className="btn-industrial-outline" onClick={() => { setDetailOpen(false); setSelectedOrder(null); }}>
               <X size={14} className="inline mr-1" />关闭
             </button>
-            {selectedOrder && (selectedOrder.status === 'pending' || selectedOrder.status === 'active') && (
+            {selectedOrder && selectedOrder.status === 'pending' && (
               <button className="btn-industrial" onClick={() => { pickupRental(selectedOrder.id); setDetailOpen(false); setSelectedOrder(null); }}>
                 <Package size={14} className="inline mr-1" />办理取架
               </button>
             )}
             {selectedOrder && (selectedOrder.status === 'active' || selectedOrder.status === 'overdue') && (
-              <button className="btn-industrial-success" onClick={() => { returnRental(selectedOrder.id); setDetailOpen(false); setSelectedOrder(null); }}>
-                <CheckCircle size={14} className="inline mr-1" />办理归还
+              <button className="btn-industrial-success" onClick={() => handleOpenSettle(selectedOrder)}>
+                <Calculator size={14} className="inline mr-1" />归还结算
               </button>
             )}
           </>
@@ -373,6 +402,117 @@ export default function ScheduleCalendar() {
                 )}
               </div>
             )}
+          </div>
+        )}
+      </Modal>
+
+      <Modal
+        open={settleOpen}
+        onClose={() => { setSettleOpen(false); setSelectedOrder(null); setSettleBilling(null); }}
+        title="归还结算确认"
+        footer={
+          <>
+            <button className="btn-industrial-outline" onClick={() => { setSettleOpen(false); setSelectedOrder(null); setSettleBilling(null); }}>
+              <X size={14} className="inline mr-1" />取消
+            </button>
+            <button className="btn-industrial-success" onClick={handleConfirmReturn}>
+              <FileText size={14} className="inline mr-1" />确认归还并生成账单
+            </button>
+          </>
+        }
+      >
+        {selectedOrder && settleBilling && (
+          <div className="space-y-4">
+            <div className="bg-steel-50 border-2 border-steel-900 p-4">
+              <div className="flex items-center justify-between mb-2">
+                <span className="font-mono text-xs text-steel-500">客户</span>
+                <span className="font-display font-semibold text-steel-900">{selectedOrder.customerName}</span>
+              </div>
+              <div className="flex items-center justify-between mb-2">
+                <span className="font-mono text-xs text-steel-500">脚手架</span>
+                <span className="font-mono text-sm">{selectedOrder.scaffoldCode} · {selectedOrder.scaffoldType}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="font-mono text-xs text-steel-500">数量</span>
+                <span className="font-display font-bold">{selectedOrder.quantity} 套</span>
+              </div>
+            </div>
+
+            <div className="border-t-2 border-steel-200 pt-4 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="font-mono text-xs text-steel-500">计划开始</span>
+                <span className="font-mono text-sm">{format(parseISO(selectedOrder.startTime), 'yyyy-MM-dd HH:mm')}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="font-mono text-xs text-steel-500">计划结束</span>
+                <span className="font-mono text-sm">{format(parseISO(selectedOrder.endTime), 'yyyy-MM-dd HH:mm')}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="font-mono text-xs text-industrial-success">实际取架</span>
+                <span className="font-mono text-sm text-industrial-success">
+                  {selectedOrder.actualStartTime ? format(parseISO(selectedOrder.actualStartTime), 'yyyy-MM-dd HH:mm') : format(parseISO(selectedOrder.startTime), 'yyyy-MM-dd HH:mm')}
+                </span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="font-mono text-xs text-industrial-danger">实际归还</span>
+                <span className="font-mono text-sm text-industrial-danger">{format(new Date(), 'yyyy-MM-dd HH:mm')}</span>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4 pt-4 border-t-2 border-steel-200">
+              <div className="text-center p-3 bg-steel-100 border-2 border-steel-900">
+                <div className="font-mono text-xs text-steel-500">原计划费用</div>
+                <div className="font-display font-bold text-xl text-steel-900">
+                  {formatCurrency(selectedOrder.totalAmount || 0)}
+                </div>
+              </div>
+              <div className="text-center p-3 bg-industrial-peak/10 border-2 border-steel-900">
+                <div className="font-mono text-xs text-steel-500">实际费用</div>
+                <div className="font-display font-bold text-xl text-industrial-peak">
+                  {formatCurrency(settleBilling.totalAmount)}
+                </div>
+              </div>
+            </div>
+
+            <div className="text-center p-4 bg-steel-800 text-white border-2 border-steel-900">
+              <div className="font-display font-bold uppercase tracking-wider text-steel-300 text-sm mb-1">费用差额</div>
+              <div className={`font-display font-bold text-3xl ${
+                settleBilling.totalAmount > (selectedOrder.totalAmount || 0) 
+                  ? 'text-industrial-peak' 
+                  : settleBilling.totalAmount < (selectedOrder.totalAmount || 0)
+                    ? 'text-industrial-success'
+                    : 'text-white'
+              }`}>
+                {settleBilling.totalAmount > (selectedOrder.totalAmount || 0) ? '+' : ''}
+                {formatCurrency(settleBilling.totalAmount - (selectedOrder.totalAmount || 0))}
+              </div>
+              <div className="font-mono text-xs text-steel-400 mt-1">
+                {settleBilling.totalAmount > (selectedOrder.totalAmount || 0)
+                  ? '超时归还，需补收'
+                  : settleBilling.totalAmount < (selectedOrder.totalAmount || 0)
+                    ? '提前归还，应退还'
+                    : '时间一致，无差额'}
+              </div>
+            </div>
+
+            <div className="space-y-1 pt-2">
+              <div className="flex justify-between font-mono text-xs text-steel-500">
+                <span>实际租赁时长</span>
+                <span>{settleBilling.totalHours.toFixed(2)} 小时</span>
+              </div>
+              <div className="flex justify-between font-mono text-xs text-steel-500">
+                <span>高峰时段</span>
+                <span>{settleBilling.peakHours.toFixed(2)} 小时</span>
+              </div>
+              <div className="flex justify-between font-mono text-xs text-steel-500">
+                <span>平峰时段</span>
+                <span>{settleBilling.normalHours.toFixed(2)} 小时</span>
+              </div>
+              <div className="flex justify-between font-mono text-xs text-steel-500">
+                <span>低谷时段</span>
+                <span>{settleBilling.valleyHours.toFixed(2)} 小时</span>
+              </div>
+            </div>
           </div>
         )}
       </Modal>

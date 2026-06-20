@@ -9,6 +9,7 @@ import InvoiceDetail from "@/pages/billing/InvoiceDetail";
 import ScaffoldList from "@/pages/scaffold/ScaffoldList";
 import ScheduleCalendar from "@/pages/scaffold/ScheduleCalendar";
 import Inventory from "@/pages/scaffold/Inventory";
+import InventoryTracking from "@/pages/scaffold/InventoryTracking";
 import WaitlistQueue from "@/pages/waitlist/WaitlistQueue";
 import NotificationLogs from "@/pages/waitlist/NotificationLogs";
 
@@ -30,6 +31,7 @@ export default function App() {
             <Route path="list" element={<ScaffoldList />} />
             <Route path="schedule" element={<ScheduleCalendar />} />
             <Route path="inventory" element={<Inventory />} />
+            <Route path="inventory-tracking" element={<InventoryTracking />} />
           </Route>
           <Route path="bills">
             <Route index element={<Navigate to="list" replace />} />

@@ -65,7 +65,7 @@ interface AppState {
   processAutoRelease: () => { released: RentalOrder[]; expiredWaitlist: WaitlistEntry[]; newNotifications: NotificationLog[] };
 }
 
-const INIT_KEY = 'scaffold_rental_initialized_v3';
+const INIT_KEY = 'scaffold_rental_initialized_v4';
 
 export const useAppStore = create<AppState>((set, get) => ({
   rateRules: [],
@@ -218,7 +218,14 @@ export const useAppStore = create<AppState>((set, get) => ({
     const state = get();
     const order = state.rentalOrders.find(o => o.id === orderId);
     if (!order) return;
+
     if (order.status !== 'pending' && order.status !== 'active') return;
+
+    const hasPickupLog = state.inventoryLogs.some(l => l.relatedOrderId === order.id && l.source === 'rental_out');
+    if (hasPickupLog) {
+      alert('该订单已办理取架，不可重复操作');
+      return;
+    }
 
     const updatedOrder = pickupOrder(order);
     const rentalOrders = state.rentalOrders.map(o => o.id === orderId ? updatedOrder : o);
@@ -228,7 +235,11 @@ export const useAppStore = create<AppState>((set, get) => ({
     const inventoryLogs = [...state.inventoryLogs];
     const scaffolds = [...state.scaffolds];
 
-    if (scaffold && scaffold.poleCount > 0) {
+    if (scaffold) {
+      if (scaffold.poleCount <= 0) {
+        alert('当前脚手架杆件数为0，无法出库，请检查库存');
+        return;
+      }
       const change = -scaffold.poleCount;
       const poleAfter = 0;
       const invLog: InventoryLog = {
@@ -259,7 +270,17 @@ export const useAppStore = create<AppState>((set, get) => ({
     const state = get();
     const order = state.rentalOrders.find(o => o.id === orderId);
     if (!order) return;
+
     if (order.status !== 'active' && order.status !== 'overdue') return;
+
+    const hasReturnLog = state.inventoryLogs.some(l => l.relatedOrderId === order.id && (l.source === 'rental_in' || l.source === 'auto_release'));
+    if (hasReturnLog) {
+      alert('该订单已办理归还或已释放，不可重复操作');
+      return;
+    }
+
+    const pickupLog = state.inventoryLogs.find(l => l.relatedOrderId === order.id && l.source === 'rental_out');
+    const expectedReturnQuantity = pickupLog ? Math.abs(pickupLog.poleChange) : order.quantity;
 
     const updatedOrder = returnOrder(order);
     const activeRule = state.rateRules.find(r => r.id === state.activeRuleId);
@@ -279,8 +300,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     const scaffolds = [...state.scaffolds];
 
     if (scaffold) {
-      const originalScaffold = createMockScaffolds().find(ms => ms.id === scaffold.id);
-      const change = originalScaffold ? originalScaffold.poleCount : order.quantity;
+      const change = expectedReturnQuantity;
       const poleAfter = scaffold.poleCount + change;
       const invLog: InventoryLog = {
         id: Date.now().toString(36) + Math.random().toString(36).slice(2),

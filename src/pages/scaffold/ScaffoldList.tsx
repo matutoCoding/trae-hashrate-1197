@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useAppStore } from '@/store/useAppStore';
 import { PageHeader, Tag, Modal, EmptyState } from '@/components/UI';
 import { Plus, Edit2, Trash2, Building2, Package, Search, Filter } from 'lucide-react';
@@ -24,6 +24,11 @@ export default function ScaffoldList() {
   const addScaffold = useAppStore(s => s.addScaffold);
   const updateScaffold = useAppStore(s => s.updateScaffold);
   const deleteScaffold = useAppStore(s => s.deleteScaffold);
+  const processAutoRelease = useAppStore(s => s.processAutoRelease);
+
+  useEffect(() => {
+    processAutoRelease();
+  }, []);
 
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<ScaffoldStatus | 'all'>('all');

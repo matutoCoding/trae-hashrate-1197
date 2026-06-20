@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import { useAppStore } from '@/store/useAppStore';
 import { PageHeader, Tag, Modal } from '@/components/UI';
 import { Package, Plus, Search, ArrowUpCircle, ArrowDownCircle, ArrowRightLeft, AlertCircle } from 'lucide-react';
@@ -18,12 +18,17 @@ export default function Inventory() {
   const rentalOrders = useAppStore(s => s.rentalOrders);
   const inventoryLogs = useAppStore(s => s.inventoryLogs);
   const addInventoryLog = useAppStore(s => s.addInventoryLog);
+  const processAutoRelease = useAppStore(s => s.processAutoRelease);
 
   const [search, setSearch] = useState('');
   const [modalOpen, setModalOpen] = useState(false);
   const [formData, setFormData] = useState({
     scaffoldId: '', action: 'in' as 'in' | 'out' | 'adjust', poleChange: 0, operator: '', notes: ''
   });
+
+  useEffect(() => {
+    processAutoRelease();
+  }, []);
 
   const summary = useMemo(() => {
     const totalPoles = scaffolds.reduce((sum, s) => sum + s.poleCount, 0);
