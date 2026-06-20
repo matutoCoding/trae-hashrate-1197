@@ -79,7 +79,7 @@ export function createRentalOrder(
   return {
     ...orderData,
     id: generateId(),
-    status: 'active',
+    status: 'pending',
     createdAt: new Date().toISOString(),
   };
 }
@@ -202,7 +202,7 @@ export function getScaffoldAvailabilityDetail(
     return isAfter(orderStart, now);
   }).sort((a, b) => parseISO(a.startTime).getTime() - parseISO(b.startTime).getTime());
 
-  const isCurrentlyRented = activeOrder && (activeOrder.status === 'active' || activeOrder.status === 'overdue');
+  const isCurrentlyRented = activeOrder && (activeOrder.status === 'pending' || activeOrder.status === 'active' || activeOrder.status === 'overdue');
 
   return {
     isAvailable: !isCurrentlyRented,
@@ -218,7 +218,7 @@ export function getDynamicScaffoldStatus(
 ): ScaffoldStatus {
   if (scaffold.status === 'maintenance') return 'maintenance';
   const { activeOrder } = getScaffoldAvailabilityDetail(scaffold.id, orders, checkDate);
-  if (activeOrder && (activeOrder.status === 'active' || activeOrder.status === 'overdue')) {
+  if (activeOrder && (activeOrder.status === 'pending' || activeOrder.status === 'active' || activeOrder.status === 'overdue')) {
     return 'rented';
   }
   return 'available';
@@ -269,15 +269,6 @@ export function processStatusTransitions(
   const toReleased: RentalOrder[] = [];
 
   const updatedOrders = orders.map(order => {
-    if (order.status === 'pending') {
-      const startTime = parseISO(order.startTime);
-      if (!isBefore(now, startTime)) {
-        const updated = { ...order, status: 'active' as RentalStatus, actualStartTime: order.actualStartTime || now.toISOString() };
-        toActive.push(updated);
-        return updated;
-      }
-    }
-
     if (order.status === 'active') {
       const endTime = parseISO(order.endTime);
       if (isAfter(now, endTime)) {

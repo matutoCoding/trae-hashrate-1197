@@ -67,7 +67,7 @@ export default function InvoiceList() {
     payInvoice(id);
   };
 
-  const ordersWithoutInvoice = rentalOrders.filter(o => o.totalAmount && !invoices.some(i => i.orderId === o.id));
+  const ordersWithoutInvoice = rentalOrders.filter(o => o.status === 'completed' && o.finalBillingResult && !invoices.some(i => i.orderId === o.id));
 
   return (
     <div>

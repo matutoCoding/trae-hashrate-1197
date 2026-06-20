@@ -17,10 +17,11 @@ const sourceLabel: Record<InventorySource, { text: string; type: 'info' | 'succe
 interface OrderTrackingInfo {
   order: RentalOrder;
   logs: InventoryLog[];
-  expectedOut: number;
-  actualOut: number;
-  expectedIn: number;
-  actualIn: number;
+  setsQuantity: number;
+  poleExpectedOut: number;
+  poleActualOut: number;
+  poleExpectedIn: number;
+  poleActualIn: number;
   diff: number;
   status: 'normal' | 'missing_out' | 'missing_in' | 'mismatch' | 'completed';
 }
@@ -38,49 +39,50 @@ export default function InventoryTracking() {
   }, []);
 
   const orderTracking = useMemo<OrderTrackingInfo[]>(() => {
-    return rentalOrders
-      .filter(o => o.status !== 'pending')
-      .map(order => {
-        const logs = inventoryLogs.filter(l => l.relatedOrderId === order.id);
-        const outLogs = logs.filter(l => l.source === 'rental_out');
-        const inLogs = logs.filter(l => l.source === 'rental_in' || l.source === 'auto_release');
+    return rentalOrders.map(order => {
+      const scaffold = scaffolds.find(s => s.id === order.scaffoldId);
+      const logs = inventoryLogs.filter(l => l.relatedOrderId === order.id);
+      const outLogs = logs.filter(l => l.source === 'rental_out');
+      const inLogs = logs.filter(l => l.source === 'rental_in' || l.source === 'auto_release');
 
-        const expectedOut = order.quantity;
-        const actualOut = outLogs.reduce((sum, l) => sum + Math.abs(l.poleChange), 0);
-        const expectedIn = actualOut > 0 ? actualOut : order.quantity;
-        const actualIn = inLogs.reduce((sum, l) => sum + Math.abs(l.poleChange), 0);
-        const diff = actualIn - expectedIn;
+      const setsQuantity = order.quantity;
+      const poleExpectedOut = scaffold ? scaffold.poleCount * setsQuantity : setsQuantity;
+      const poleActualOut = outLogs.reduce((sum, l) => sum + Math.abs(l.poleChange), 0);
+      const poleExpectedIn = poleActualOut > 0 ? poleActualOut : poleExpectedOut;
+      const poleActualIn = inLogs.reduce((sum, l) => sum + Math.abs(l.poleChange), 0);
+      const diff = poleActualIn - poleExpectedIn;
 
-        let status: OrderTrackingInfo['status'] = 'normal';
-        const hasOut = outLogs.length > 0;
-        const hasIn = inLogs.length > 0;
-        const isOrderComplete = order.status === 'completed' || order.status === 'released';
+      let status: OrderTrackingInfo['status'] = 'normal';
+      const hasOut = outLogs.length > 0 && poleActualOut > 0;
+      const hasIn = inLogs.length > 0 && poleActualIn > 0;
+      const isOrderComplete = order.status === 'completed' || order.status === 'released';
 
-        if (isOrderComplete && Math.abs(diff) === 0 && actualOut > 0) {
-          status = 'completed';
-        } else if (!hasOut) {
-          status = 'missing_out';
-        } else if (isOrderComplete && !hasIn) {
-          status = 'missing_in';
-        } else if (Math.abs(diff) > 0) {
-          status = 'mismatch';
-        } else {
-          status = 'normal';
-        }
+      if (isOrderComplete && Math.abs(diff) === 0 && hasOut) {
+        status = 'completed';
+      } else if (!hasOut) {
+        status = 'missing_out';
+      } else if (isOrderComplete && !hasIn) {
+        status = 'missing_in';
+      } else if (hasIn && Math.abs(diff) > 0) {
+        status = 'mismatch';
+      } else {
+        status = 'normal';
+      }
 
-        return {
-          order,
-          logs,
-          expectedOut,
-          actualOut,
-          expectedIn,
-          actualIn,
-          diff,
-          status,
-        };
-      })
+      return {
+        order,
+        logs,
+        setsQuantity,
+        poleExpectedOut,
+        poleActualOut,
+        poleExpectedIn,
+        poleActualIn,
+        diff,
+        status,
+      };
+    })
       .sort((a, b) => parseISO(b.order.createdAt).getTime() - parseISO(a.order.createdAt).getTime());
-  }, [rentalOrders, inventoryLogs]);
+  }, [rentalOrders, inventoryLogs, scaffolds]);
 
   const filteredTracking = useMemo(() => {
     return orderTracking.filter(t => {
@@ -214,6 +216,9 @@ export default function InventoryTracking() {
                           <Building2 size={14} className="text-steel-500" />
                           <span className="font-mono text-xs">{tracking.order.scaffoldCode} · {tracking.order.scaffoldType}</span>
                         </div>
+                        <div className="font-mono text-xs text-industrial-info">
+                          {tracking.setsQuantity}套 · 单套{tracking.poleExpectedOut / tracking.setsQuantity}根
+                        </div>
                         <div className="font-mono text-xs text-steel-500">
                           计划：{format(parseISO(tracking.order.startTime), 'MM-dd HH:mm')} ~ {format(parseISO(tracking.order.endTime), 'MM-dd HH:mm')}
                         </div>
@@ -232,23 +237,23 @@ export default function InventoryTracking() {
 
                     <div className="flex items-center gap-6 shrink-0">
                       <div className="text-center">
-                        <div className="font-mono text-xs text-steel-500">应出</div>
-                        <div className="font-display font-bold text-industrial-peak">{tracking.expectedOut}</div>
+                        <div className="font-mono text-xs text-steel-500">应出(根)</div>
+                        <div className="font-display font-bold text-industrial-peak">{tracking.poleExpectedOut}</div>
                       </div>
                       <div className="text-center">
-                        <div className="font-mono text-xs text-steel-500">实出</div>
-                        <div className={`font-display font-bold ${tracking.actualOut === tracking.expectedOut ? 'text-industrial-success' : 'text-industrial-danger'}`}>
-                          {tracking.actualOut}
+                        <div className="font-mono text-xs text-steel-500">实出(根)</div>
+                        <div className={`font-display font-bold ${tracking.poleActualOut === tracking.poleExpectedOut ? 'text-industrial-success' : 'text-industrial-danger'}`}>
+                          {tracking.poleActualOut}
                         </div>
                       </div>
                       <div className="text-center">
-                        <div className="font-mono text-xs text-steel-500">应入</div>
-                        <div className="font-display font-bold text-industrial-info">{tracking.expectedIn}</div>
+                        <div className="font-mono text-xs text-steel-500">应入(根)</div>
+                        <div className="font-display font-bold text-industrial-info">{tracking.poleExpectedIn}</div>
                       </div>
                       <div className="text-center">
-                        <div className="font-mono text-xs text-steel-500">实入</div>
-                        <div className={`font-display font-bold ${tracking.actualIn === tracking.expectedIn ? 'text-industrial-success' : 'text-industrial-danger'}`}>
-                          {tracking.actualIn}
+                        <div className="font-mono text-xs text-steel-500">实入(根)</div>
+                        <div className={`font-display font-bold ${tracking.poleActualIn === tracking.poleExpectedIn ? 'text-industrial-success' : 'text-industrial-danger'}`}>
+                          {tracking.poleActualIn}
                         </div>
                       </div>
                       <div className="text-center border-l-2 border-steel-200 pl-6">

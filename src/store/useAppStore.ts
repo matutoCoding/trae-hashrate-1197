@@ -65,7 +65,7 @@ interface AppState {
   processAutoRelease: () => { released: RentalOrder[]; expiredWaitlist: WaitlistEntry[]; newNotifications: NotificationLog[] };
 }
 
-const INIT_KEY = 'scaffold_rental_initialized_v4';
+const INIT_KEY = 'scaffold_rental_initialized_v5';
 
 export const useAppStore = create<AppState>((set, get) => ({
   rateRules: [],
@@ -200,10 +200,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       quantity,
     };
     const order = createRentalOrder(orderData);
-    const now = new Date();
-    if (startTime > now) {
-      order.status = 'pending';
-    }
+    order.status = 'pending';
     order.billingResult = billingResult;
     order.totalAmount = billingResult.totalAmount;
 
@@ -219,7 +216,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     const order = state.rentalOrders.find(o => o.id === orderId);
     if (!order) return;
 
-    if (order.status !== 'pending' && order.status !== 'active') return;
+    if (order.status !== 'pending') return;
 
     const hasPickupLog = state.inventoryLogs.some(l => l.relatedOrderId === order.id && l.source === 'rental_out');
     if (hasPickupLog) {
@@ -280,7 +277,11 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
 
     const pickupLog = state.inventoryLogs.find(l => l.relatedOrderId === order.id && l.source === 'rental_out');
-    const expectedReturnQuantity = pickupLog ? Math.abs(pickupLog.poleChange) : order.quantity;
+    if (!pickupLog) {
+      alert('该订单尚未办理取架，无法归还，请先办理取架出库');
+      return;
+    }
+    const expectedReturnQuantity = Math.abs(pickupLog.poleChange);
 
     const updatedOrder = returnOrder(order);
     const activeRule = state.rateRules.find(r => r.id === state.activeRuleId);
@@ -446,10 +447,10 @@ export const useAppStore = create<AppState>((set, get) => ({
         finalWaitlist = wl;
         if (notif) finalNotifications.push(notif);
 
+        const pickupLog = finalInventoryLogs.find(l => l.relatedOrderId === released.id && l.source === 'rental_out');
         const scaffold = finalScaffolds.find(s => s.id === released.scaffoldId);
-        if (scaffold) {
-          const originalScaffold = createMockScaffolds().find(ms => ms.id === scaffold.id);
-          const change = originalScaffold ? originalScaffold.poleCount : released.quantity;
+        if (scaffold && pickupLog) {
+          const change = Math.abs(pickupLog.poleChange);
           const poleAfter = scaffold.poleCount + change;
           const invLog: InventoryLog = {
             id: Date.now().toString(36) + Math.random().toString(36).slice(2) + released.id,
@@ -463,31 +464,6 @@ export const useAppStore = create<AppState>((set, get) => ({
             operator: '系统',
             relatedOrderId: released.id,
             notes: `超时释放自动入库 - ${released.customerName}`,
-          };
-          finalInventoryLogs.unshift(invLog);
-          finalScaffolds = finalScaffolds.map(s => s.id === scaffold.id ? { ...s, poleCount: poleAfter } : s);
-        }
-      }
-    }
-
-    if (statusResult.toActive.length > 0) {
-      for (const activated of statusResult.toActive) {
-        const scaffold = finalScaffolds.find(s => s.id === activated.scaffoldId);
-        if (scaffold && scaffold.poleCount > 0) {
-          const change = -scaffold.poleCount;
-          const poleAfter = 0;
-          const invLog: InventoryLog = {
-            id: Date.now().toString(36) + Math.random().toString(36).slice(2) + activated.id,
-            scaffoldId: scaffold.id,
-            scaffoldCode: scaffold.code,
-            action: 'out',
-            source: 'rental_out',
-            poleChange: change,
-            poleAfter,
-            createdAt: new Date().toISOString(),
-            operator: '系统',
-            relatedOrderId: activated.id,
-            notes: `预约到点自动出库 - ${activated.customerName}`,
           };
           finalInventoryLogs.unshift(invLog);
           finalScaffolds = finalScaffolds.map(s => s.id === scaffold.id ? { ...s, poleCount: poleAfter } : s);
