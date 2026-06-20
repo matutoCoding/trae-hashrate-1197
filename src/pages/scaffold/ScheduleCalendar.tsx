@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react';
 import { useAppStore } from '@/store/useAppStore';
 import { PageHeader, Tag, Modal } from '@/components/UI';
-import { ChevronLeft, ChevronRight, Plus, Calendar, Clock, User, Building2, AlertCircle } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Plus, Calendar, Clock, User, Building2, AlertCircle, Package, CheckCircle, Undo2, X } from 'lucide-react';
 import { addDays, startOfWeek, endOfWeek, eachDayOfInterval, format, isSameDay, parseISO, addHours, isBefore } from 'date-fns';
 import { RentalOrder, RentalStatus, Scaffold } from '@/types';
 import { calculateRentalFee } from '@/services/billingService';
@@ -29,11 +29,15 @@ export default function ScheduleCalendar() {
   const rateRules = useAppStore(s => s.rateRules);
   const activeRuleId = useAppStore(s => s.activeRuleId);
   const createRental = useAppStore(s => s.createRental);
+  const pickupRental = useAppStore(s => s.pickupRental);
+  const returnRental = useAppStore(s => s.returnRental);
   const processAutoRelease = useAppStore(s => s.processAutoRelease);
 
   const [viewMode, setViewMode] = useState<'week' | 'day'>('week');
   const [currentDate, setCurrentDate] = useState(new Date());
   const [modalOpen, setModalOpen] = useState(false);
+  const [detailOpen, setDetailOpen] = useState(false);
+  const [selectedOrder, setSelectedOrder] = useState<RentalOrder | null>(null);
   const [selectedScaffold, setSelectedScaffold] = useState<Scaffold | null>(null);
 
   const [formData, setFormData] = useState({
@@ -186,15 +190,20 @@ export default function ScheduleCalendar() {
                       {orders.map(order => {
                         const orderStart = parseISO(order.startTime);
                         const orderEnd = parseISO(order.endTime);
+                        const colorMap = order.status === 'overdue' ? 'bg-industrial-danger text-white' : order.status === 'released' ? 'bg-industrial-warning/30' : order.status === 'completed' ? 'bg-industrial-success text-white' : order.status === 'pending' ? 'bg-industrial-info text-white' : 'bg-industrial-peak text-white';
                         return (
                           <div
                             key={order.id}
-                            className={`p-2 mb-1 border-2 border-steel-900 ${order.status === 'overdue' ? 'bg-industrial-danger text-white' : order.status === 'released' ? 'bg-industrial-warning/20' : 'bg-industrial-peak text-white'}`}
+                            onClick={() => { setSelectedOrder(order); setDetailOpen(true); }}
+                            className={`p-2 mb-1 border-2 border-steel-900 cursor-pointer hover:shadow-industrial transition-all ${colorMap}`}
                           >
-                            <div className="font-mono text-xs truncate">{order.customerName}</div>
+                            <div className="font-mono text-xs truncate font-bold">{order.customerName}</div>
                             <div className="font-mono text-[10px] opacity-80">
                               {format(orderStart, 'HH:mm')}-{format(orderEnd, 'HH:mm')}
                             </div>
+                            <Tag type={statusColor[order.status]} className="mt-1 inline-block">
+                              {statusLabel[order.status]}
+                            </Tag>
                           </div>
                         );
                       })}
@@ -278,6 +287,94 @@ export default function ScheduleCalendar() {
             </div>
           </div>
         </div>
+      </Modal>
+
+      <Modal
+        open={detailOpen}
+        onClose={() => { setDetailOpen(false); setSelectedOrder(null); }}
+        title="订单详情"
+        footer={
+          <>
+            <button className="btn-industrial-outline" onClick={() => { setDetailOpen(false); setSelectedOrder(null); }}>
+              <X size={14} className="inline mr-1" />关闭
+            </button>
+            {selectedOrder && (selectedOrder.status === 'pending' || selectedOrder.status === 'active') && (
+              <button className="btn-industrial" onClick={() => { pickupRental(selectedOrder.id); setDetailOpen(false); setSelectedOrder(null); }}>
+                <Package size={14} className="inline mr-1" />办理取架
+              </button>
+            )}
+            {selectedOrder && (selectedOrder.status === 'active' || selectedOrder.status === 'overdue') && (
+              <button className="btn-industrial-success" onClick={() => { returnRental(selectedOrder.id); setDetailOpen(false); setSelectedOrder(null); }}>
+                <CheckCircle size={14} className="inline mr-1" />办理归还
+              </button>
+            )}
+          </>
+        }
+      >
+        {selectedOrder && (
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="font-mono text-xs text-steel-500">订单编号</span>
+              <span className="font-mono text-sm text-steel-900">{selectedOrder.id}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="font-mono text-xs text-steel-500">状态</span>
+              <Tag type={statusColor[selectedOrder.status]}>{statusLabel[selectedOrder.status]}</Tag>
+            </div>
+            <div className="border-t-2 border-steel-200 pt-3">
+              <div className="flex items-start gap-2 mb-2">
+                <User size={14} className="text-steel-500 mt-0.5" />
+                <div>
+                  <div className="font-display font-semibold text-steel-900">{selectedOrder.customerName}</div>
+                  <div className="font-mono text-xs text-steel-500">{selectedOrder.customerPhone || '-'}</div>
+                </div>
+              </div>
+              <div className="flex items-start gap-2">
+                <Building2 size={14} className="text-steel-500 mt-0.5" />
+                <div>
+                  <div className="font-display font-semibold text-steel-900">{selectedOrder.scaffoldCode}</div>
+                  <div className="font-mono text-xs text-steel-500">{selectedOrder.scaffoldType} · {selectedOrder.quantity}套</div>
+                </div>
+              </div>
+            </div>
+            <div className="border-t-2 border-steel-200 pt-3 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="font-mono text-xs text-steel-500 flex items-center gap-1"><Clock size={12} />计划开始</span>
+                <span className="font-mono text-sm">{format(parseISO(selectedOrder.startTime), 'yyyy-MM-dd HH:mm')}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="font-mono text-xs text-steel-500 flex items-center gap-1"><Clock size={12} />计划结束</span>
+                <span className="font-mono text-sm">{format(parseISO(selectedOrder.endTime), 'yyyy-MM-dd HH:mm')}</span>
+              </div>
+              {selectedOrder.actualStartTime && (
+                <div className="flex items-center justify-between">
+                  <span className="font-mono text-xs text-industrial-success flex items-center gap-1"><CheckCircle size={12} />实际取架</span>
+                  <span className="font-mono text-sm text-industrial-success">{format(parseISO(selectedOrder.actualStartTime), 'yyyy-MM-dd HH:mm')}</span>
+                </div>
+              )}
+              {selectedOrder.actualEndTime && (
+                <div className="flex items-center justify-between">
+                  <span className="font-mono text-xs text-industrial-success flex items-center gap-1"><Undo2 size={12} />实际归还</span>
+                  <span className="font-mono text-sm text-industrial-success">{format(parseISO(selectedOrder.actualEndTime), 'yyyy-MM-dd HH:mm')}</span>
+                </div>
+              )}
+            </div>
+            {selectedOrder.totalAmount !== undefined && (
+              <div className="border-t-2 border-steel-200 pt-3">
+                <div className="flex items-center justify-between">
+                  <span className="font-display font-semibold text-steel-900">预估费用</span>
+                  <span className="font-display font-bold text-xl text-industrial-peak">¥{selectedOrder.totalAmount.toFixed(2)}</span>
+                </div>
+                {selectedOrder.finalAmount !== undefined && selectedOrder.finalAmount !== selectedOrder.totalAmount && (
+                  <div className="flex items-center justify-between mt-1">
+                    <span className="font-display font-semibold text-industrial-success">实际费用</span>
+                    <span className="font-display font-bold text-xl text-industrial-success">¥{selectedOrder.finalAmount.toFixed(2)}</span>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
       </Modal>
     </div>
   );

@@ -201,6 +201,14 @@ export default function InvoiceDetail() {
               <div className="font-mono text-xs text-steel-400 space-y-1">
                 <div>租赁时长：{formatDuration(invoice.billingResult.totalHours)}</div>
                 <div>分段数量：{invoice.billingResult.segments.length} 段</div>
+                {invoice.originalAmount !== undefined && invoice.amountDiff !== undefined && invoice.amountDiff !== 0 && (
+                  <div className="pt-2 mt-2 border-t border-steel-600 space-y-1">
+                    <div>预估费用：{formatCurrency(invoice.originalAmount)}</div>
+                    <div className={invoice.amountDiff > 0 ? 'text-industrial-peak' : 'text-industrial-success'}>
+                      {invoice.amountDiff > 0 ? '增加' : '减少'}：{invoice.amountDiff > 0 ? '+' : ''}{formatCurrency(invoice.amountDiff)}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           </div>

@@ -172,10 +172,10 @@ export function createMockInvoices(orders: RentalOrder[]): Invoice[] {
 export function createMockInventoryLogs(scaffolds: Scaffold[]): InventoryLog[] {
   const now = new Date();
   return [
-    { id: 'inv-log-001', scaffoldId: 'sc-001', scaffoldCode: 'SF-2024-001', action: 'out', poleChange: -120, poleAfter: 0, createdAt: subDays(now, 2).toISOString(), operator: '张主管', notes: '出库租赁' },
-    { id: 'inv-log-002', scaffoldId: 'sc-003', scaffoldCode: 'SF-2024-003', action: 'out', poleChange: -200, poleAfter: 0, createdAt: subDays(now, 1).toISOString(), operator: '李主管', notes: '出库租赁' },
-    { id: 'inv-log-003', scaffoldId: 'sc-005', scaffoldCode: 'SF-2024-005', action: 'adjust', poleChange: -15, poleAfter: 285, createdAt: subDays(now, 3).toISOString(), operator: '王工', notes: '维修损耗15根' },
-    { id: 'inv-log-004', scaffoldId: 'sc-007', scaffoldCode: 'SF-2024-007', action: 'out', poleChange: -100, poleAfter: 0, createdAt: now.toISOString(), operator: '张主管', notes: '出库租赁' },
+    { id: 'inv-log-001', scaffoldId: 'sc-001', scaffoldCode: 'SF-2024-001', action: 'out', source: 'rental_out', poleChange: -120, poleAfter: 0, createdAt: subDays(now, 2).toISOString(), operator: '张主管', relatedOrderId: 'order-1000', notes: '出库租赁' },
+    { id: 'inv-log-002', scaffoldId: 'sc-003', scaffoldCode: 'SF-2024-003', action: 'out', source: 'rental_out', poleChange: -200, poleAfter: 0, createdAt: subDays(now, 1).toISOString(), operator: '李主管', relatedOrderId: 'order-1001', notes: '出库租赁' },
+    { id: 'inv-log-003', scaffoldId: 'sc-005', scaffoldCode: 'SF-2024-005', action: 'adjust', source: 'manual', poleChange: -15, poleAfter: 285, createdAt: subDays(now, 3).toISOString(), operator: '王工', notes: '维修损耗15根' },
+    { id: 'inv-log-004', scaffoldId: 'sc-007', scaffoldCode: 'SF-2024-007', action: 'out', source: 'rental_out', poleChange: -100, poleAfter: 0, createdAt: now.toISOString(), operator: '张主管', relatedOrderId: 'order-1002', notes: '出库租赁' },
   ];
 }
 

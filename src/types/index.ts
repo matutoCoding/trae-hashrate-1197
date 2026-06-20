@@ -59,12 +59,15 @@ export interface RentalOrder {
   customerPhone: string;
   startTime: string;
   endTime: string;
+  actualStartTime?: string;
   actualEndTime?: string;
   quantity: number;
   status: RentalStatus;
   autoReleaseAfterMinutes: number;
   totalAmount?: number;
+  finalAmount?: number;
   billingResult?: BillingResult;
+  finalBillingResult?: BillingResult;
   createdAt: string;
 }
 
@@ -91,22 +94,29 @@ export interface Invoice {
   orderId: string;
   customerName: string;
   billingResult: BillingResult;
+  originalBillingResult?: BillingResult;
   createdAt: string;
   status: InvoiceStatus;
   totalAmount: number;
+  originalAmount?: number;
+  amountDiff?: number;
   issuedAt?: string;
   paidAt?: string;
 }
+
+export type InventorySource = 'manual' | 'rental_out' | 'rental_in' | 'auto_release';
 
 export interface InventoryLog {
   id: string;
   scaffoldId: string;
   scaffoldCode: string;
   action: 'in' | 'out' | 'adjust';
+  source: InventorySource;
   poleChange: number;
   poleAfter: number;
   createdAt: string;
   operator: string;
+  relatedOrderId?: string;
   notes?: string;
 }
 

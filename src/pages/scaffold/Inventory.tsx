@@ -3,8 +3,15 @@ import { useAppStore } from '@/store/useAppStore';
 import { PageHeader, Tag, Modal } from '@/components/UI';
 import { Package, Plus, Search, ArrowUpCircle, ArrowDownCircle, ArrowRightLeft, AlertCircle } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
-import { InventoryLog, Scaffold, ScaffoldStatus } from '@/types';
+import { InventoryLog, Scaffold, ScaffoldStatus, InventorySource } from '@/types';
 import { getDynamicScaffoldStatus } from '@/services/scheduleService';
+
+const sourceLabel: Record<InventorySource, { text: string; type: 'info' | 'success' | 'peak' | 'warning' }> = {
+  manual: { text: '人工盘点', type: 'info' },
+  rental_out: { text: '租赁出库', type: 'peak' },
+  rental_in: { text: '归还入库', type: 'success' },
+  auto_release: { text: '超时释放', type: 'warning' },
+};
 
 export default function Inventory() {
   const scaffolds = useAppStore(s => s.scaffolds);
@@ -78,6 +85,7 @@ export default function Inventory() {
       scaffoldId: scaffold.id,
       scaffoldCode: scaffold.code,
       action: formData.action,
+      source: 'manual',
       poleChange: change,
       poleAfter: after,
       createdAt: new Date().toISOString(),
@@ -241,6 +249,7 @@ export default function Inventory() {
               <tr>
                 <th>时间</th>
                 <th>脚手架</th>
+                <th>来源</th>
                 <th>操作类型</th>
                 <th>变动</th>
                 <th>操作后数量</th>
@@ -251,15 +260,19 @@ export default function Inventory() {
             <tbody>
               {filteredLogs.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="text-center py-8 font-mono text-sm text-steel-500">暂无出入库记录</td>
+                  <td colSpan={8} className="text-center py-8 font-mono text-sm text-steel-500">暂无出入库记录</td>
                 </tr>
               ) : (
                 filteredLogs.map(log => {
                   const label = getActionLabel(log.action);
+                  const src = sourceLabel[log.source] || sourceLabel.manual;
                   return (
                     <tr key={log.id}>
                       <td className="font-mono text-xs">{format(parseISO(log.createdAt), 'yyyy-MM-dd HH:mm')}</td>
                       <td className="font-mono">{log.scaffoldCode}</td>
+                      <td>
+                        <Tag type={src.type}>{src.text}</Tag>
+                      </td>
                       <td>
                         <div className="flex items-center gap-2">
                           {getActionIcon(log.action)}

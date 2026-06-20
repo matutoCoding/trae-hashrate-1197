@@ -241,3 +241,64 @@ export function hasScheduleConflict(
   });
   return conflictingOrders.length > 0;
 }
+
+export function pickupOrder(order: RentalOrder): RentalOrder {
+  const now = new Date();
+  return {
+    ...order,
+    status: 'active',
+    actualStartTime: now.toISOString(),
+  };
+}
+
+export function returnOrder(order: RentalOrder): RentalOrder {
+  const now = new Date();
+  return {
+    ...order,
+    status: 'completed',
+    actualEndTime: now.toISOString(),
+  };
+}
+
+export function processStatusTransitions(
+  orders: RentalOrder[]
+): { orders: RentalOrder[]; toActive: RentalOrder[]; toOverdue: RentalOrder[]; toReleased: RentalOrder[] } {
+  const now = new Date();
+  const toActive: RentalOrder[] = [];
+  const toOverdue: RentalOrder[] = [];
+  const toReleased: RentalOrder[] = [];
+
+  const updatedOrders = orders.map(order => {
+    if (order.status === 'pending') {
+      const startTime = parseISO(order.startTime);
+      if (!isBefore(now, startTime)) {
+        const updated = { ...order, status: 'active' as RentalStatus, actualStartTime: order.actualStartTime || now.toISOString() };
+        toActive.push(updated);
+        return updated;
+      }
+    }
+
+    if (order.status === 'active') {
+      const endTime = parseISO(order.endTime);
+      if (isAfter(now, endTime)) {
+        const updated = { ...order, status: 'overdue' as RentalStatus };
+        toOverdue.push(updated);
+        return updated;
+      }
+    }
+
+    if (order.status === 'active' || order.status === 'overdue') {
+      const endTime = parseISO(order.endTime);
+      const releaseTime = addMinutes(endTime, order.autoReleaseAfterMinutes);
+      if (isAfter(now, releaseTime)) {
+        const updated = { ...order, status: 'released' as RentalStatus, actualEndTime: now.toISOString() };
+        toReleased.push(updated);
+        return updated;
+      }
+    }
+
+    return order;
+  });
+
+  return { orders: updatedOrders, toActive, toOverdue, toReleased };
+}
